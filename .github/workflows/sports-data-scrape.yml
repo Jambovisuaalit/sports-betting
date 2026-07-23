@@ -1,0 +1,71 @@
+name: Sports data scrape
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      leagues:
+        description: Comma-separated leagues
+        required: false
+        default: England,Germany,Italy,France,Spain
+      divisions:
+        description: Comma-separated divisions
+        required: false
+        default: "1"
+      years:
+        description: Comma-separated historical seasons
+        required: false
+        default: "2023,2024"
+      odds_type:
+        description: Odds aggregation exposed by SoccerDataLoader
+        required: false
+        default: market_maximum
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sports-data-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PIPELINE_LEAGUES: ${{ inputs.leagues || 'England,Germany,Italy,France,Spain' }}
+      PIPELINE_DIVISIONS: ${{ inputs.divisions || '1' }}
+      PIPELINE_YEARS: ${{ inputs.years || '2023,2024' }}
+      PIPELINE_ODDS_TYPE: ${{ inputs.odds_type || 'market_maximum' }}
+      PIPELINE_OUTPUT_ROOT: artifacts/sports-data
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Compile pipeline
+        run: python -m compileall -q scripts/scrape_soccer_pipeline.py
+
+      - name: Extract and validate snapshot
+        run: python scripts/scrape_soccer_pipeline.py
+
+      - name: Upload immutable snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sports-data-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/sports-data
+          if-no-files-found: error
+          retention-days: 14
